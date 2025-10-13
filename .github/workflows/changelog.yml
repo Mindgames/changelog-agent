@@ -1,0 +1,195 @@
+name: Changelog + Version (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      project_type:
+        description: "auto|python|pnpm"
+        required: false
+        default: "auto"
+        type: string
+      bump_from_labels:
+        description: "If true, infer bump from PR labels"
+        required: false
+        default: "false"
+        type: boolean
+      label_major:
+        required: false
+        default: "semver:major"
+        type: string
+      label_minor:
+        required: false
+        default: "semver:minor"
+        type: string
+      label_patch:
+        required: false
+        default: "semver:patch"
+        type: string
+      bump_level:
+        description: "patch|minor|major (used when bump_from_labels=false)"
+        required: false
+        default: "patch"
+        type: string
+      changelog_path:
+        required: false
+        default: "CHANGELOG.md"
+        type: string
+      openai_model:
+        required: false
+        default: "gpt-4o-mini"
+        type: string
+      openai_base_url:
+        required: false
+        default: ""
+        type: string
+      central_repo:
+        description: "Repo that hosts this workflow & script (org/name)"
+        required: false
+        default: "your-org/changelog-bot"
+        type: string
+      central_ref:
+        description: "Ref (tag/branch/sha) to check out scripts from"
+        required: false
+        default: "v1"
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  run:
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout central script repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.central_repo }}
+          ref: ${{ inputs.central_ref }}
+          path: _changelog_bot
+
+      - name: Detect project type
+        id: detect
+        shell: bash
+        run: |
+          pt="${{ inputs.project_type }}"
+          if [[ "$pt" == "auto" ]]; then
+            if [[ -f pnpm-lock.yaml || -f pnpm-workspace.yaml ]]; then
+              pt="pnpm"
+            elif [[ -f scripts/bump_version.py ]]; then
+              pt="python"
+            else
+              pt="none"
+            fi
+          fi
+          echo "project_type=$pt" >> "$GITHUB_OUTPUT"
+          echo "Detected project_type=$pt"
+
+      - name: Decide bump level
+        id: bump
+        shell: bash
+        run: |
+          level="${{ inputs.bump_level }}"
+          if [[ "${{ inputs.bump_from_labels }}" == "true" ]]; then
+            labels='${{ toJSON(github.event.pull_request.labels) }}'
+            if   [[ "$labels" == *"${{ inputs.label_major }}"* ]]; then level="major"
+            elif [[ "$labels" == *"${{ inputs.label_minor }}"* ]]; then level="minor"
+            elif [[ "$labels" == *"${{ inputs.label_patch }}"* ]]; then level="patch"
+            fi
+          fi
+          echo "level=$level" >> "$GITHUB_OUTPUT"
+          echo "Bump level: $level"
+
+      - name: Setup Node (for pnpm)
+        if: steps.detect.outputs.project_type == 'pnpm'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        if: steps.detect.outputs.project_type == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Bump version (pnpm)
+        if: steps.detect.outputs.project_type == 'pnpm'
+        run: |
+          pnpm --version
+          pnpm version ${{ steps.bump.outputs.level }} --no-git-tag-version
+          pnpm install --lockfile-only || true
+
+      - name: Bump version (python)
+        if: steps.detect.outputs.project_type == 'python'
+        run: |
+          python --version
+          python scripts/bump_version.py --${{ steps.bump.outputs.level }}
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "openai>=1.35.0" requests
+
+      - name: Generate changelog entry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ inputs.openai_base_url }}
+          OPENAI_MODEL: ${{ inputs.openai_model }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGELOG_PATH: ${{ inputs.changelog_path }}
+        run: |
+          python _changelog_bot/scripts/gen_changelog.py
+
+      - name: Get new version
+        id: version
+        shell: bash
+        run: |
+          ver=""
+          if [[ -f package.json ]]; then
+            ver=$(node -p "require('./package.json').version" 2>/dev/null || true)
+          fi
+          if [[ -z "$ver" && -f pyproject.toml ]]; then
+            python - <<'PY' | tr -d '\n'
+import tomllib
+try:
+  print(tomllib.load(open('pyproject.toml','rb')).get('project',{}).get('version',''))
+except Exception:
+  pass
+PY
+          fi
+          echo "new_version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Detected version: ${ver:-unknown}"
+
+      - name: Create PR with version + changelog
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/release/pr-${{ github.event.pull_request.number }}
+          title: "chore(release): bump to ${{ steps.version.outputs.new_version || steps.bump.outputs.level }} + changelog for #${{ github.event.pull_request.number }}"
+          commit-message: "chore(release): version ${{ steps.version.outputs.new_version || steps.bump.outputs.level }} + changelog for #${{ github.event.pull_request.number }}"
+          body: |
+            Automated version bump (${{ steps.detect.outputs.project_type }}) and changelog for #${{ github.event.pull_request.number }}.
+            New version: ${{ steps.version.outputs.new_version || 'unknown' }}.
+          base: main
+          token: ${{ secrets.GITHUB_TOKEN }}
