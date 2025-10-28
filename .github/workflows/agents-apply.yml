@@ -11,7 +11,7 @@ permissions:
 jobs:
   apply:
     if: contains(github.event.pull_request.labels.*.name, 'agents:apply')
-    uses: your-org/changelog-bot/.github/workflows/agents-codex.yml@v1
+    uses: Mindgames/changelog-agent/.github/workflows/agents-codex.yml@main
     secrets: inherit
     with:
       mode: apply

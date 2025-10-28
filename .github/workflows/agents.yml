@@ -15,7 +15,7 @@ on:
         type: string
       openai_model:
         required: false
-        default: "gpt-4o-mini"
+        default: "gpt-5-codex"
         type: string
       openai_base_url:
         required: false

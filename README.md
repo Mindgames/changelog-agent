@@ -35,7 +35,7 @@ jobs:
     with:
       mode: suggest
       always_include: "xyz"
-      model: gpt-4o-mini
+      model: gpt-5-codex
 ```
 
 One‑click apply via label
@@ -55,7 +55,7 @@ jobs:
     with:
       mode: apply
       always_include: "xyz"
-      model: gpt-4o-mini
+      model: gpt-5-codex
 ```
 
 Policy (optional)
@@ -70,6 +70,7 @@ Safety & guarantees
 Notes
 - The updater prioritizes the nearest `AGENTS.md` and also considers parent `AGENTS.md` for higher-level guidance.
 - Secrets are never echoed; provide them via env vars and avoid printing values.
+ - Default model is `gpt-5-codex` and the workflow sets reasoning effort to `high` via Codex config.
 
 ## Security notes
 - Runs as the caller repo with `contents: write` + `pull-requests: write` only.

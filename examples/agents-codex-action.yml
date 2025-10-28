@@ -23,7 +23,7 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           sandbox: read-only
-          model: gpt-4o-mini
+          model: gpt-5-codex
           codex-args: "--ask-for-approval never"
           output-file: .agents_suggestions.json
           output-schema: |
@@ -93,4 +93,3 @@ jobs:
               issue_number: context.payload.pull_request.number,
               body: lines.join('\n')
             });
-
