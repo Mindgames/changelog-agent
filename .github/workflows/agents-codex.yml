@@ -37,7 +37,7 @@ jobs:
     steps:
       - name: checkout-merge-suggest
         if: inputs.mode == 'suggest'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
@@ -53,14 +53,14 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/codex-home"
           cat > "$RUNNER_TEMP/codex-home/config.toml" <<'TOML'
-model = "gpt-5-codex"
-model_reasoning_effort = "high"
-model_supports_reasoning_summaries = true
-TOML
+          model = "gpt-5-codex"
+          model_reasoning_effort = "high"
+          model_supports_reasoning_summaries = true
+          TOML
 
       - name: checkout-head-apply
         if: inputs.mode == 'apply'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref }}
@@ -70,10 +70,10 @@ TOML
         run: |
           mkdir -p "$RUNNER_TEMP/codex-home"
           cat > "$RUNNER_TEMP/codex-home/config.toml" <<'TOML'
-model = "gpt-5-codex"
-model_reasoning_effort = "high"
-model_supports_reasoning_summaries = true
-TOML
+          model = "gpt-5-codex"
+          model_reasoning_effort = "high"
+          model_supports_reasoning_summaries = true
+          TOML
 
       - name: run-codex-suggest
         if: inputs.mode == 'suggest'
@@ -132,7 +132,7 @@ TOML
 
       - name: post-summary-comment-suggest
         if: inputs.mode == 'suggest'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           SUGGESTIONS_FILE: .agents_suggestions.json
         with:
