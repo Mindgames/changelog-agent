@@ -19,7 +19,7 @@ GH_HEADERS = {
     "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
 }
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-codex")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
 
 # PoC configuration: suggestion vs apply

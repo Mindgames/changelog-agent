@@ -19,5 +19,4 @@ jobs:
         - Keep AGENTS.md aligned with repo behavior
         - Do not echo secrets; prefer env vars
         - Preserve two-space YAML indentation and kebab-case step names
-      model: gpt-4o-mini
-
+      model: gpt-5-codex

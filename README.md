@@ -12,6 +12,7 @@ This repo ships a Codex-powered, reusable workflow that keeps `AGENTS.md` files 
 - Optional Python fallback: `.github/workflows/agents.yml` + `scripts/update_agents.py`
 
 How it works
+
 - Runs on PRs to analyze changed files and target the nearest `AGENTS.md` (primary) plus parent `AGENTS.md` (secondary).
 - Preserves tone/structure and makes minimal, actionable edits.
 - Enforces a caller-provided block (e.g., “xyz”) exactly once in each updated file.
@@ -20,6 +21,7 @@ How it works
   - apply: workspace-write sandbox, applies edits on disk, validates only AGENTS.md changed, and commits.
 
 Quick start (suggest)
+
 ```yaml
 name: agents
 on:
@@ -35,10 +37,11 @@ jobs:
     with:
       mode: suggest
       always_include: "xyz"
-      model: gpt-4o-mini
+      model: gpt-5-codex
 ```
 
 One‑click apply via label
+
 ```yaml
 name: agents-apply
 on:
@@ -55,23 +58,28 @@ jobs:
     with:
       mode: apply
       always_include: "xyz"
-      model: gpt-4o-mini
+      model: gpt-5-codex
 ```
 
 Policy (optional)
+
 - Add `.codex/agents-policy.toml` to guide edits (see `examples/agents-policy.toml`).
 - Suggested keys: `required_blocks[]`, `parent_update_strategy`, `allow_parent_writes`, `section_order[]`, `prohibited_phrases[]`, `max_edits_per_run`.
 
 Safety & guarantees
+
 - `openai/codex-action@v1` with default `drop-sudo` and a sandbox.
 - Apply mode validates that only `**/AGENTS.md` files changed; the job fails otherwise.
 - For same-repo branches, changes push directly to the PR branch; otherwise, a small bot PR is opened.
 
 Notes
+
 - The updater prioritizes the nearest `AGENTS.md` and also considers parent `AGENTS.md` for higher-level guidance.
 - Secrets are never echoed; provide them via env vars and avoid printing values.
+- Default model is `gpt-5-codex` and the workflow sets reasoning effort to `high` via Codex config.
 
 ## Security notes
+
 - Runs as the caller repo with `contents: write` + `pull-requests: write` only.
 - Avoids `pull_request_target` (no escalated token from forks).
-- Apply mode validates only `AGENTS.md` paths mutate before committing.
+- Apply mode validates only `AGENTS.md` paths mutate before committing

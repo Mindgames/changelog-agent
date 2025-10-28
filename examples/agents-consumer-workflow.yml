@@ -19,8 +19,7 @@ jobs:
         - Keep AGENTS.md aligned with repo behavior
         - Do not echo secrets; prefer env vars
         - Preserve two-space YAML indentation and kebab-case step names
-      openai_model: gpt-4o-mini
+      openai_model: gpt-5-codex
       openai_base_url: ""
       central_repo: your-org/changelog-bot
       central_ref: v1
-

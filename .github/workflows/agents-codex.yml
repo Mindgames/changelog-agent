@@ -15,7 +15,7 @@ on:
         type: string
       model:
         required: false
-        default: "gpt-4o-mini"
+        default: "gpt-5-codex"
         type: string
       allow_users:
         description: "Comma-separated list of GitHub usernames allowed to trigger apply"
@@ -47,6 +47,16 @@ jobs:
           git fetch --no-tags origin \
             ${{ github.event.pull_request.base.ref }} \
             +refs/pull/${{ github.event.pull_request.number }}/head
+      - name: prepare-codex-config-suggest
+        if: inputs.mode == 'suggest'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/codex-home"
+          cat > "$RUNNER_TEMP/codex-home/config.toml" <<'TOML'
+model = "gpt-5-codex"
+model_reasoning_effort = "high"
+model_supports_reasoning_summaries = true
+TOML
 
       - name: checkout-head-apply
         if: inputs.mode == 'apply'
@@ -54,6 +64,16 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref }}
+      - name: prepare-codex-config-apply
+        if: inputs.mode == 'apply'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/codex-home"
+          cat > "$RUNNER_TEMP/codex-home/config.toml" <<'TOML'
+model = "gpt-5-codex"
+model_reasoning_effort = "high"
+model_supports_reasoning_summaries = true
+TOML
 
       - name: run-codex-suggest
         if: inputs.mode == 'suggest'
@@ -64,6 +84,7 @@ jobs:
           sandbox: read-only
           model: ${{ inputs.model }}
           allow-users: ${{ inputs.allow_users }}
+          codex-home: ${{ runner.temp }}/codex-home
           codex-args: "--ask-for-approval never"
           output-file: .agents_suggestions.json
           output-schema: |
@@ -146,6 +167,7 @@ jobs:
           sandbox: workspace-write
           model: ${{ inputs.model }}
           allow-users: ${{ inputs.allow_users }}
+          codex-home: ${{ runner.temp }}/codex-home
           codex-args: "--ask-for-approval never"
           prompt: |
             You are updating AGENTS.md files for ${{ github.repository }} PR #${{ github.event.pull_request.number }}.
