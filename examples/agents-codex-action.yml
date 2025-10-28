@@ -1,0 +1,96 @@
+name: agents-codex
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  suggest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout PR merge ref
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: run codex to draft agents updates
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: read-only
+          model: gpt-4o-mini
+          codex-args: "--ask-for-approval never"
+          output-file: .agents_suggestions.json
+          output-schema: |
+            {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": { "type": "string" },
+                      "priority": { "type": "string", "enum": ["primary", "secondary"] },
+                      "summary": { "type": "string" },
+                      "updated_content": { "type": "string" }
+                    },
+                    "required": ["path", "priority", "updated_content"]
+                  }
+                }
+              },
+              "required": ["files"]
+            }
+          prompt: |
+            You are updating AGENTS.md files for ${{ github.repository }} PR #${{ github.event.pull_request.number }}.
+
+            Goals:
+            - For each file changed in this PR, include the nearest AGENTS.md (primary) and all ancestor AGENTS.md (secondary).
+            - Propose minimal, tone-preserving edits; avoid fluff.
+            - Ensure this required block appears once in every updated file: "xyz".
+
+            Produce JSON per schema with entries:
+            - path: repository-relative path to AGENTS.md
+            - priority: primary (nearest) or secondary (ancestor)
+            - updated_content: full file content after your edits
+            - summary: brief rationale
+
+            Refer to the repo at HEAD and use:
+              git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+            to determine changed files.
+
+      - name: post suggestions as PR comments
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          SUGGESTIONS_FILE: .agents_suggestions.json
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const path = process.env.SUGGESTIONS_FILE;
+            if (!fs.existsSync(path)) { return core.notice('No suggestions file found'); }
+            let parsed;
+            try { parsed = JSON.parse(fs.readFileSync(path, 'utf8')); } catch (e) {
+              return core.warning('Failed parsing suggestions JSON: ' + e.message);
+            }
+            if (!parsed.files || !parsed.files.length) {
+              return core.notice('No suggested AGENTS.md updates');
+            }
+            const lines = ['Proposed AGENTS.md updates (Codex):'];
+            for (const f of parsed.files) {
+              lines.push(`\n- ${f.path} [${f.priority}]`);
+              if (f.summary) lines.push(`  Reason: ${f.summary}`);
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: lines.join('\n')
+            });
+

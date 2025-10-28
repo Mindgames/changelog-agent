@@ -1,75 +1,77 @@
-# changelog-bot
+# Agents Updater (Codex Action)
 
-Central, reusable workflow to:
-1. **Bump versions** (Python or pnpm) after a PR is merged to `main`
-2. **Append a Keep a Changelog entry** for that PR to the root `CHANGELOG.md`
+A reusable GitHub Actions workflow that uses OpenAI Codex Action to keep `AGENTS.md` files current as your code changes. It proposes edits on every PR and can auto-apply them on demand.
 
-## How to use
+## Agents Updater (PoC)
 
-1. Create the repo (example name): **`your-org/changelog-bot`** and push these files.
-2. Tag a stable major version (e.g., `v1`) so consumers can pin:
-   ```bash
-   git tag -f v1 && git push -f origin v1
-   ```
-3. Add an **org secret** `OPENAI_API_KEY` so all consumer repos can `secrets: inherit`.
-4. In each consumer repo, add this workflow (see `examples/consumer-workflow.yml`):
-   ```yaml
-   name: changelog
-   on:
-     pull_request:
-       types: [closed]
-       branches: [main]
-   permissions:
-     contents: write
-     pull-requests: write
-   jobs:
-     changelog:
-       uses: your-org/changelog-bot/.github/workflows/changelog.yml@v1
-       secrets: inherit
-       with:
-         project_type: auto
-         bump_from_labels: false
-         bump_level: patch
-         changelog_path: CHANGELOG.md
-         openai_model: gpt-4o-mini
-         openai_base_url: ""
-         central_repo: your-org/changelog-bot
-         central_ref: v1
-   ```
+This repo ships a Codex-powered, reusable workflow that keeps `AGENTS.md` files up to date on every PR. It proposes changes by default, and can auto-apply them with a single label or a separate job.
 
-> **Note:** Replace `your-org` with your real org. Keep callers pinned to `@v1`. When you improve this bot, retag `v1` to roll out updates globally.
+- Reusable (Codex Action): `.github/workflows/agents-codex.yml`
+- Example (suggest): `examples/agents-codex-consumer.yml`
+- Example (apply on label): `examples/agents-apply-on-label.yml`
+- Optional Python fallback: `.github/workflows/agents.yml` + `scripts/update_agents.py`
 
-## Inputs (consumers can override)
+How it works
+- Runs on PRs to analyze changed files and target the nearest `AGENTS.md` (primary) plus parent `AGENTS.md` (secondary).
+- Preserves tone/structure and makes minimal, actionable edits.
+- Enforces a caller-provided block (e.g., “xyz”) exactly once in each updated file.
+- Modes:
+  - suggest (default): read-only sandbox, outputs a JSON plan and posts a summary comment.
+  - apply: workspace-write sandbox, applies edits on disk, validates only AGENTS.md changed, and commits.
 
-- `project_type`: `auto|python|pnpm` (default `auto`)
-- `bump_from_labels`: `true|false` (default `false`) — if true, infer semver level from labels
-- `label_major|label_minor|label_patch`: label names (defaults: `semver:major`, `semver:minor`, `semver:patch`)
-- `bump_level`: `patch|minor|major` (default `patch`, ignored if `bump_from_labels=true`)
-- `changelog_path`: path to root changelog (default `CHANGELOG.md`)
-- `openai_model`: model name (default `gpt-4o-mini`)
-- `openai_base_url`: custom OpenAI-compatible endpoint (optional)
-- `central_repo`: repo that hosts this workflow & script (default `your-org/changelog-bot`)
-- `central_ref`: git ref to check out scripts from (default `v1`)
-
-## What it does (high level)
-- Triggers only when a PR is **merged into `main`**.
-- Detects repo type or uses forced input.
-- Bumps version:
-  - Python: `python scripts/bump_version.py --{patch|minor|major}`
-  - pnpm: `pnpm version {patch|minor|major} --no-git-tag-version` + `pnpm install --lockfile-only`
-- Calls an LLM to generate a single bullet (Keep a Changelog categories).
-- Inserts under `## [Unreleased]` → appropriate `### Category`.
-- Opens a **bot PR** with both the version bump and changelog change.
-
-## Optional: pinned runtime via GHCR
-If you want deterministic toolchains, build the Docker image in `/docker` using the workflow `publish-image.yml`, then add to `jobs.run:` in `changelog.yml`:
+Quick start (suggest)
 ```yaml
-container:
-  image: ghcr.io/${{ github.repository_owner }}/changelog-bot:1
+name: agents
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  agents-updater:
+    uses: your-org/changelog-bot/.github/workflows/agents-codex.yml@v1
+    secrets: inherit
+    with:
+      mode: suggest
+      always_include: "xyz"
+      model: gpt-4o-mini
 ```
-You can bump the tag and re-pin callers when needed.
+
+One‑click apply via label
+```yaml
+name: agents-apply
+on:
+  pull_request:
+    types: [labeled]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  apply:
+    if: contains(github.event.pull_request.labels.*.name, 'agents:apply')
+    uses: your-org/changelog-bot/.github/workflows/agents-codex.yml@v1
+    secrets: inherit
+    with:
+      mode: apply
+      always_include: "xyz"
+      model: gpt-4o-mini
+```
+
+Policy (optional)
+- Add `.codex/agents-policy.toml` to guide edits (see `examples/agents-policy.toml`).
+- Suggested keys: `required_blocks[]`, `parent_update_strategy`, `allow_parent_writes`, `section_order[]`, `prohibited_phrases[]`, `max_edits_per_run`.
+
+Safety & guarantees
+- `openai/codex-action@v1` with default `drop-sudo` and a sandbox.
+- Apply mode validates that only `**/AGENTS.md` files changed; the job fails otherwise.
+- For same-repo branches, changes push directly to the PR branch; otherwise, a small bot PR is opened.
+
+Notes
+- The updater prioritizes the nearest `AGENTS.md` and also considers parent `AGENTS.md` for higher-level guidance.
+- Secrets are never echoed; provide them via env vars and avoid printing values.
 
 ## Security notes
-- Runs as the **caller repo** with `contents: write` + `pull-requests: write` only.
+- Runs as the caller repo with `contents: write` + `pull-requests: write` only.
 - Avoids `pull_request_target` (no escalated token from forks).
-- Idempotent: skips if the PR number is already present in `CHANGELOG.md`.
+- Apply mode validates only `AGENTS.md` paths mutate before committing.

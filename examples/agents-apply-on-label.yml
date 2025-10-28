@@ -1,0 +1,19 @@
+name: agents-apply
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply:
+    if: contains(github.event.pull_request.labels.*.name, 'agents:apply')
+    uses: your-org/changelog-bot/.github/workflows/agents-codex.yml@v1
+    secrets: inherit
+    with:
+      mode: apply
+      always_include: "xyz"
+      model: gpt-4o-mini

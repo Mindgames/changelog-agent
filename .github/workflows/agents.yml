@@ -1,0 +1,123 @@
+name: Agents Updater (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "suggest|apply"
+        required: false
+        default: "suggest"
+        type: string
+      always_include:
+        description: "String or block to enforce in AGENTS.md"
+        required: false
+        default: "xyz"
+        type: string
+      openai_model:
+        required: false
+        default: "gpt-4o-mini"
+        type: string
+      openai_base_url:
+        required: false
+        default: ""
+        type: string
+      central_repo:
+        description: "Repo that hosts this workflow & script (org/name)"
+        required: false
+        default: "your-org/changelog-bot"
+        type: string
+      central_ref:
+        description: "Ref (tag/branch/sha) to check out scripts from"
+        required: false
+        default: "v1"
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  run:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout-caller
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: checkout-central
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.central_repo }}
+          ref: ${{ inputs.central_ref }}
+          path: _agents_bot
+
+      - name: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: install-deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "openai>=1.35.0" requests
+
+      - name: update-agents
+        id: update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ inputs.openai_base_url }}
+          OPENAI_MODEL: ${{ inputs.openai_model }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          AGENTS_MODE: ${{ inputs.mode }}
+          AGENTS_ALWAYS_INCLUDE: ${{ inputs.always_include }}
+        run: |
+          python _agents_bot/scripts/update_agents.py
+
+      - name: can-direct-push
+        id: canpush
+        if: inputs.mode == 'apply' && hashFiles('.agents_updates_applied') != ''
+        shell: bash
+        run: |
+          # Direct push only if PR head repo matches base repo (not a fork)
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "branch=${{ github.event.pull_request.head.ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: commit-and-push-to-pr-branch
+        if: inputs.mode == 'apply' && steps.canpush.outputs.ok == 'true'
+        shell: bash
+        run: |
+          git config --global user.name "agents-bot"
+          git config --global user.email "agents-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No staged changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: update AGENTS.md for #${{ github.event.pull_request.number }}"
+          git push origin "HEAD:${{ steps.canpush.outputs.branch }}"
+
+      - name: create-pr-for-agents-updates
+        if: inputs.mode == 'apply' && hashFiles('.agents_updates_applied') != '' && steps.canpush.outputs.ok != 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/agents-update-pr-${{ github.event.pull_request.number }}
+          title: "chore: agents updates for #${{ github.event.pull_request.number }}"
+          commit-message: "chore: agents updates for #${{ github.event.pull_request.number }}"
+          body: |
+            Proposed AGENTS.md updates based on changes in #${{ github.event.pull_request.number }}.
+            See `.agents_update_report.json` for a machine-readable summary.
+          base: ${{ github.event.pull_request.base.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}

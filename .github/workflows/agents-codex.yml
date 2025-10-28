@@ -1,0 +1,215 @@
+name: Agents Updater (Codex Action)
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "suggest|apply"
+        required: false
+        default: "suggest"
+        type: string
+      always_include:
+        description: "String or block to enforce in AGENTS.md"
+        required: false
+        default: "xyz"
+        type: string
+      model:
+        required: false
+        default: "gpt-4o-mini"
+        type: string
+      allow_users:
+        description: "Comma-separated list of GitHub usernames allowed to trigger apply"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout-merge-suggest
+        if: inputs.mode == 'suggest'
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: prefetch-refs-suggest
+        if: inputs.mode == 'suggest'
+        run: |
+          git fetch --no-tags origin \
+            ${{ github.event.pull_request.base.ref }} \
+            +refs/pull/${{ github.event.pull_request.number }}/head
+
+      - name: checkout-head-apply
+        if: inputs.mode == 'apply'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: run-codex-suggest
+        if: inputs.mode == 'suggest'
+        id: run_codex_suggest
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: read-only
+          model: ${{ inputs.model }}
+          allow-users: ${{ inputs.allow_users }}
+          codex-args: "--ask-for-approval never"
+          output-file: .agents_suggestions.json
+          output-schema: |
+            {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": { "type": "string" },
+                      "priority": { "type": "string", "enum": ["primary", "secondary"] },
+                      "summary": { "type": "string" },
+                      "updated_content": { "type": "string" }
+                    },
+                    "required": ["path", "priority", "updated_content"]
+                  }
+                }
+              },
+              "required": ["files"],
+              "additionalProperties": false
+            }
+          prompt: |
+            You are updating AGENTS.md files for ${{ github.repository }} PR #${{ github.event.pull_request.number }}.
+
+            Context:
+            - Base SHA: ${{ github.event.pull_request.base.sha }}
+            - Head SHA: ${{ github.event.pull_request.head.sha }}
+            - Changed files are given by: git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+            - If present, consider policy at .codex/agents-policy.toml
+
+            Rules:
+            - For each changed file, identify the nearest AGENTS.md (primary) and all ancestor AGENTS.md (secondary).
+            - Preserve tone and structure; keep concise, actionable edits.
+            - Enforce this required block exactly once per file:
+              ${{ inputs.always_include }}
+            - Do NOT modify any file content on disk in this mode; output a JSON plan only.
+
+            Output JSON per schema with entries:
+            - path: repository-relative AGENTS.md path
+            - priority: primary (nearest) or secondary (ancestor)
+            - updated_content: full content after your edits
+            - summary: brief rationale
+
+      - name: post-summary-comment-suggest
+        if: inputs.mode == 'suggest'
+        uses: actions/github-script@v7
+        env:
+          SUGGESTIONS_FILE: .agents_suggestions.json
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const path = process.env.SUGGESTIONS_FILE;
+            if (!fs.existsSync(path)) { return core.notice('No suggestions file found'); }
+            let parsed;
+            try { parsed = JSON.parse(fs.readFileSync(path, 'utf8')); } catch (e) {
+              return core.warning('Failed parsing suggestions JSON: ' + e.message);
+            }
+            const files = (parsed && parsed.files) || [];
+            if (!files.length) { return core.notice('No proposed AGENTS.md updates'); }
+            const lines = ['Proposed AGENTS.md updates:', ''];
+            for (const f of files) {
+              lines.push(`- ${f.path} [${f.priority}]${f.summary ? ' — ' + f.summary : ''}`);
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: lines.join('\n')
+            });
+
+      - name: run-codex-apply
+        if: inputs.mode == 'apply'
+        id: run_codex_apply
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: workspace-write
+          model: ${{ inputs.model }}
+          allow-users: ${{ inputs.allow_users }}
+          codex-args: "--ask-for-approval never"
+          prompt: |
+            You are updating AGENTS.md files for ${{ github.repository }} PR #${{ github.event.pull_request.number }}.
+
+            Context:
+            - Changed files are given by: git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD
+            - If present, consider policy at .codex/agents-policy.toml
+
+            Rules:
+            - Identify nearest AGENTS.md (primary) and all ancestor AGENTS.md (secondary) for each changed file.
+            - Preserve tone/structure; keep concise, actionable edits.
+            - Enforce this required block exactly once per file:
+              ${{ inputs.always_include }}
+            - Only modify files whose basename is AGENTS.md. Do NOT edit other files.
+            - Create AGENTS.md if missing at a targeted location when needed.
+            - After writing, summarise changes in the final message.
+
+            Proceed to apply the changes on disk.
+
+      - name: validate-only-agents-changed-apply
+        if: inputs.mode == 'apply'
+        shell: bash
+        run: |
+          git status --porcelain
+          if ! git diff --name-only | grep -Eq '(^|.*/)?AGENTS\.md$'; then
+            echo "No AGENTS.md changes detected"; exit 0; fi
+          others=$(git diff --name-only | grep -Ev '(^|.*/)?AGENTS\.md$' || true)
+          if [ -n "$others" ]; then
+            echo "Unexpected files changed:\n$others" >&2
+            exit 1
+          fi
+
+      - name: can-direct-push-apply
+        if: inputs.mode == 'apply'
+        id: canpush
+        shell: bash
+        run: |
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "branch=${{ github.event.pull_request.head.ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: commit-and-push-apply
+        if: inputs.mode == 'apply' && steps.canpush.outputs.ok == 'true'
+        shell: bash
+        run: |
+          if git diff --quiet; then echo "No changes"; exit 0; fi
+          git config user.name "agents-bot"
+          git config user.email "agents-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: update AGENTS.md for #${{ github.event.pull_request.number }}"
+          git push origin "HEAD:${{ steps.canpush.outputs.branch }}"
+
+      - name: create-pr-apply
+        if: inputs.mode == 'apply' && steps.canpush.outputs.ok != 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/agents-update-pr-${{ github.event.pull_request.number }}
+          title: "chore: agents updates for #${{ github.event.pull_request.number }}"
+          commit-message: "chore: agents updates for #${{ github.event.pull_request.number }}"
+          body: |
+            Proposed AGENTS.md updates based on changes in #${{ github.event.pull_request.number }}.
+            Only AGENTS.md files were modified; job fails if any other files are touched.
+          base: ${{ github.event.pull_request.base.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}

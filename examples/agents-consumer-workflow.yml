@@ -1,0 +1,26 @@
+name: agents
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  agents-updater:
+    uses: your-org/changelog-bot/.github/workflows/agents.yml@v1
+    secrets: inherit
+    with:
+      mode: suggest        # or 'apply' to auto-commit via PR
+      always_include: |
+        ## Non-Negotiables
+        - Keep AGENTS.md aligned with repo behavior
+        - Do not echo secrets; prefer env vars
+        - Preserve two-space YAML indentation and kebab-case step names
+      openai_model: gpt-4o-mini
+      openai_base_url: ""
+      central_repo: your-org/changelog-bot
+      central_ref: v1
+

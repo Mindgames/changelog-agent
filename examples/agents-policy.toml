@@ -1,0 +1,30 @@
+# Example policy file for Codex-driven AGENTS.md updates.
+# Place this at `.codex/agents-policy.toml` in the caller repo.
+
+required_blocks = [
+  "## Non-Negotiables\n- Do not echo secrets\n- Preserve two-space YAML indentation",
+]
+
+# Update strategy for parent AGENTS.md files.
+parent_update_strategy = "align-minor" # one of: off|align-minor|mirror-primary
+
+# Allow creating or editing ancestor AGENTS.md files.
+allow_parent_writes = true
+
+# Optional stylistic preferences
+section_order = [
+  "Repository Guidelines",
+  "Build, Test, and Development Commands",
+  "Coding Style & Naming Conventions",
+  "Testing Guidelines",
+  "Commit & Pull Request Guidelines",
+  "Security & Configuration Tips",
+]
+
+prohibited_phrases = [
+  "paste this token",
+  "run with sudo",
+]
+
+max_edits_per_run = 6
+
