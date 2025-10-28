@@ -82,4 +82,4 @@ Notes
 
 - Runs as the caller repo with `contents: write` + `pull-requests: write` only.
 - Avoids `pull_request_target` (no escalated token from forks).
-- Apply mode validates only `AGENTS.md` paths mutate before committing
+- Apply mode validates only `AGENTS.md` paths mutate before committing.
