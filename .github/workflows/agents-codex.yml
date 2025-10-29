@@ -85,7 +85,6 @@ jobs:
           model: ${{ inputs.model }}
           allow-users: ${{ inputs.allow_users }}
           codex-home: ${{ runner.temp }}/codex-home
-          codex-args: "--ask-for-approval never"
           output-file: .agents_suggestions.json
           output-schema: |
             {
@@ -168,7 +167,7 @@ jobs:
           model: ${{ inputs.model }}
           allow-users: ${{ inputs.allow_users }}
           codex-home: ${{ runner.temp }}/codex-home
-          codex-args: "--ask-for-approval never"
+          codex-args: "--full-auto"
           prompt: |
             You are updating AGENTS.md files for ${{ github.repository }} PR #${{ github.event.pull_request.number }}.
 
