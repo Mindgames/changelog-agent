@@ -5,15 +5,12 @@ on:
     types: [labeled]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   apply:
     if: contains(github.event.pull_request.labels.*.name, 'agents:apply')
-    uses: Mindgames/changelog-agent/.github/workflows/agents-codex.yml@main
-    secrets: inherit
+    uses: ./.github/workflows/agents-codex.yml
     with:
       mode: apply
       always_include: "xyz"
-      model: gpt-5-codex
