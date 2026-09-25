@@ -41,6 +41,7 @@ permissions:
 
 jobs:
   run:
+    name: AGENTS updater disabled (manual review required)
     runs-on: ubuntu-latest
     steps:
       - name: report-disabled-updater
